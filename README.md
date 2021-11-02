@@ -5,7 +5,7 @@ Simple, optimized and usefull package to add HSV color picker to your project.
 
 | Example 1 | Example 2 |
 | :--------------: | :---------------------: |
-|     ![](https://github.com/Korpyc/circular_color_picker/tree/master/assets/example_1.png)     |    ![](https://github.com/Korpyc/circular_color_picker/tree/master/assets/example_2.png)     |
+| ![](https://github.com/Korpyc/circular_color_picker/blob/master/assets/example_1.png) | ![](https://github.com/Korpyc/circular_color_picker/blob/master/assets/example_2.png) |
 
 ## Getting started
 
