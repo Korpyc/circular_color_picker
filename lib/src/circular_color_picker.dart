@@ -48,24 +48,44 @@ class _CircularColorPickerState extends State<CircularColorPicker> {
 
   @override
   Widget build(BuildContext context) {
-    double? radius;
-    Size screenSize = MediaQuery.of(context).size;
-    if (screenSize.height / 2 < widget.radius ||
-        screenSize.width / 2 < widget.radius) {
-      double minSize = math.min(screenSize.height, screenSize.width);
-      radius = minSize / 2;
-      if (!widget.pickerDotOptions.isInner) {
-        radius -= widget.pickerDotOptions.radius;
-      }
-    }
-    return Provider(
-      create: (_) => CircularColorPickerStateProvider(
-        currentColor: widget.pickerOptions.initialColor,
-        radius: radius ?? widget.radius,
-      ),
-      child: _buildWithBackground(
-        child: _buildPickerArea(),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        double radius;
+
+        if (constraints.maxHeight / 2 <= widget.radius ||
+            constraints.maxWidth / 2 <= widget.radius) {
+          double minSize =
+              math.min(constraints.maxHeight, constraints.maxWidth);
+          radius = minSize / 2;
+        } else {
+          radius = widget.radius;
+        }
+
+        return ProxyProvider(
+          create: (_) => CircularColorPickerStateProvider(
+            currentColor: widget.pickerOptions.initialColor,
+            radius: radius,
+          ),
+          update: (
+            context,
+            value,
+            CircularColorPickerStateProvider? previous,
+          ) =>
+              CircularColorPickerStateProvider(
+            currentColor:
+                previous?.currentColor ?? widget.pickerOptions.initialColor,
+            radius: radius,
+          ),
+          updateShouldNotify: (
+            CircularColorPickerStateProvider previous,
+            CircularColorPickerStateProvider current,
+          ) =>
+              previous.radius != current.radius,
+          child: _buildWithBackground(
+            child: _buildPickerArea(),
+          ),
+        );
+      },
     );
   }
 
@@ -130,25 +150,25 @@ class _ColorPickerAreaState extends State<_ColorPickerArea> {
 
   @override
   void didChangeDependencies() {
-    super.didChangeDependencies();
-
     Color currentColor =
         context.read<CircularColorPickerStateProvider>().currentColor;
-    double dotRadians = _degreesToRadians(HSVColor.fromColor(currentColor).hue);
 
-    _radius = context.read<CircularColorPickerStateProvider>().radius;
+    double dotRadians = _degreesToRadians(
+      HSVColor.fromColor(currentColor).hue.floorToDouble(),
+    );
 
-    double dotDistanceToCenter =
-        (_radius - widget.pickerDotOptions.radius * 2) *
-            HSVColor.fromColor(currentColor).saturation;
-    final double dotCenterX =
-        _radius + dotDistanceToCenter * math.sin(dotRadians);
-    final double dotCenterY =
-        _radius + dotDistanceToCenter * math.cos(dotRadians);
+    _radius = context.watch<CircularColorPickerStateProvider>().radius;
+
+    double dotDistanceFromCenter = (_radius - widget.pickerDotOptions.radius) *
+        HSVColor.fromColor(currentColor).saturation;
 
     _dotPosition = ValueNotifier<Offset>(
-      Offset(dotCenterX, dotCenterY),
+      _calculateDotPosition(
+        distanceFromCenter: dotDistanceFromCenter,
+        angleInRadians: dotRadians,
+      ),
     );
+    super.didChangeDependencies();
   }
 
   @override
@@ -161,92 +181,29 @@ class _ColorPickerAreaState extends State<_ColorPickerArea> {
       height: _radius * 2,
       width: _radius * 2,
       child: GestureDetector(
-        onPanStart: (details) => _handleTouchWheel(
+        onPanStart: (details) => _handleTouchOnColorfulArea(
           details.localPosition,
           context,
         ),
-        onPanUpdate: (details) => _handleTouchWheel(
+        onPanUpdate: (details) => _handleTouchOnColorfulArea(
           details.localPosition,
           context,
         ),
         onPanEnd: (_) {
           widget.onColorChange(
-              context.read<CircularColorPickerStateProvider>().currentColor);
+            context.read<CircularColorPickerStateProvider>().currentColor,
+          );
         },
         child: Stack(
           alignment: Alignment.center,
           children: [
-            Container(
-              margin: EdgeInsets.all(
-                widget.pickerDotOptions.isInner
-                    ? 0
-                    : widget.pickerDotOptions.radius,
-              ),
-              width: _radius * 2,
-              height: _radius * 2,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.all(
-                  Radius.circular(_radius),
-                ),
-                gradient: SweepGradient(
-                  colors: widget.colors,
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black,
-                    spreadRadius: 0.3,
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              margin: EdgeInsets.all(
-                widget.pickerDotOptions.isInner
-                    ? 0
-                    : widget.pickerDotOptions.radius,
-              ),
-              width: _radius * 2,
-              height: _radius * 2,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.all(
-                  Radius.circular(_radius),
-                ),
-                gradient: const RadialGradient(
-                  colors: <Color>[
-                    Colors.white,
-                    Color(0x00ffffff),
-                  ],
-                  stops: [0.0, 1.0],
-                ),
-              ),
-            ),
+            _buildColorfullArea(),
             ValueListenableBuilder<Offset>(
               valueListenable: _dotPosition,
-              builder: (context, value, child) {
-                Color currentColor = context
-                    .read<CircularColorPickerStateProvider>()
-                    .currentColor;
-                double dotRadians =
-                    _degreesToRadians(HSVColor.fromColor(currentColor).hue);
-
-                _radius =
-                    context.read<CircularColorPickerStateProvider>().radius;
-
-                double dotDistanceToCenter =
-                    (_radius - widget.pickerDotOptions.radius * 2) *
-                        HSVColor.fromColor(currentColor).saturation;
-                final double dotCenterX =
-                    _radius + dotDistanceToCenter * math.sin(dotRadians);
-                final double dotCenterY =
-                    _radius + dotDistanceToCenter * math.cos(dotRadians);
-
-                if (_dotPosition.value != Offset(dotCenterX, dotCenterY)) {
-                  _dotPosition.value = Offset(dotCenterX, dotCenterY);
-                }
-
+              builder: (context, position, child) {
                 return _buildPickerDot(
-                  value.dx,
-                  value.dy,
+                  position.dx,
+                  position.dy,
                   context,
                 );
               },
@@ -257,54 +214,54 @@ class _ColorPickerAreaState extends State<_ColorPickerArea> {
     );
   }
 
-  void _handleTouchWheel(
-    Offset positionOffset,
-    BuildContext context,
-  ) {
-    double deltaX = positionOffset.dx - _radius;
-    double deltaY = positionOffset.dy - _radius;
-
-    double realDistanceFromCenter =
-        math.sqrt(math.pow(deltaX, 2) + math.pow(deltaY, 2));
-
-    double saturation = realDistanceFromCenter / _radius <= 0.1
-        ? 0
-        : _calculateSaturation(realDistanceFromCenter / _radius);
-
-    double theta = math.atan2(deltaX, deltaY);
-    double hue = _radiansToDegrees(theta);
-
-    context.read<CircularColorPickerStateProvider>().currentColor =
-        HSVColor.fromAHSV(1, hue, saturation, 1).toColor();
-
-    double thumbDistanceToCenter =
-        _getDistanceToCenterOfDot(realDistanceFromCenter);
-
-    double thumbCenterX = _radius + thumbDistanceToCenter * math.sin(theta);
-    double thumbCenterY = _radius + thumbDistanceToCenter * math.cos(theta);
-
-    thumbCenterX -= widget.pickerDotOptions.radius;
-    thumbCenterY -= widget.pickerDotOptions.radius;
-
-    _dotPosition.value = Offset(thumbCenterX, thumbCenterY);
-
-    if (!widget.pickerOptions.callOnChangeFunctionOnEnd) {
-      widget.onColorChange(
-          context.read<CircularColorPickerStateProvider>().currentColor);
-    }
-  }
-
-  double _calculateSaturation(
-    double value,
-  ) {
-    double saturation = (value * 0.7) + 0.4;
-    return saturation >= 1 ? 1 : saturation;
-  }
-
-  double _getDistanceToCenterOfDot(double distanceFromCenter) {
-    return math.min(
-      distanceFromCenter,
-      _radius - widget.pickerDotOptions.radius,
+  Widget _buildColorfullArea() {
+    return Stack(
+      children: [
+        Container(
+          margin: EdgeInsets.all(
+            widget.pickerDotOptions.isInner
+                ? 0
+                : widget.pickerDotOptions.radius,
+          ),
+          width: _radius * 2,
+          height: _radius * 2,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.all(
+              Radius.circular(_radius),
+            ),
+            gradient: SweepGradient(
+              colors: widget.colors,
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black,
+                spreadRadius: 0.3,
+              ),
+            ],
+          ),
+        ),
+        Container(
+          margin: EdgeInsets.all(
+            widget.pickerDotOptions.isInner
+                ? 0
+                : widget.pickerDotOptions.radius,
+          ),
+          width: _radius * 2,
+          height: _radius * 2,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.all(
+              Radius.circular(_radius),
+            ),
+            gradient: const RadialGradient(
+              colors: <Color>[
+                Colors.white,
+                Color(0x00ffffff),
+              ],
+              stops: [0.0, 1.0],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -321,6 +278,62 @@ class _ColorPickerAreaState extends State<_ColorPickerArea> {
             context.read<CircularColorPickerStateProvider>().currentColor,
         pickerDotOptions: widget.pickerDotOptions,
       ),
+    );
+  }
+
+  void _handleTouchOnColorfulArea(
+    Offset positionOffset,
+    BuildContext context,
+  ) {
+    double deltaX = positionOffset.dx - _radius;
+    double deltaY = positionOffset.dy - _radius;
+
+    double realDistanceFromCenter =
+        math.sqrt(math.pow(deltaX, 2) + math.pow(deltaY, 2));
+
+    double saturation = realDistanceFromCenter / _radius >= 1
+        ? 1
+        : realDistanceFromCenter / _radius;
+
+    double theta = math.atan2(deltaX, deltaY);
+    double hue = _radiansToDegrees(theta);
+
+    context.read<CircularColorPickerStateProvider>().currentColor =
+        HSVColor.fromAHSV(1, hue, saturation, 1).toColor();
+
+    double dotDistanceFromCenter =
+        _getDistanceToCenterOfDot(realDistanceFromCenter);
+
+    _dotPosition.value = _calculateDotPosition(
+      distanceFromCenter: dotDistanceFromCenter,
+      angleInRadians: theta,
+    );
+
+    if (!widget.pickerOptions.callOnChangeFunctionOnEnd) {
+      widget.onColorChange(
+          context.read<CircularColorPickerStateProvider>().currentColor);
+    }
+  }
+
+  Offset _calculateDotPosition({
+    required double distanceFromCenter,
+    required double angleInRadians,
+  }) {
+    double dotCenterX =
+        (_radius + distanceFromCenter * math.sin(angleInRadians)) -
+            widget.pickerDotOptions.radius;
+
+    double dotCenterY =
+        (_radius + distanceFromCenter * math.cos(angleInRadians)) -
+            widget.pickerDotOptions.radius;
+
+    return Offset(dotCenterX, dotCenterY);
+  }
+
+  double _getDistanceToCenterOfDot(double distanceFromCenter) {
+    return math.min(
+      distanceFromCenter,
+      _radius - widget.pickerDotOptions.radius,
     );
   }
 
